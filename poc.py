@@ -15,7 +15,7 @@ class APIDatabase():
                                           user=user,
                                           password=password,
                                           db=db,
-                                          charset='utf8mb4',
+                                          charset='utf8',
                                           cursorclass=pymysql.cursors.DictCursor)
 
         self.cursor = self.connection.cursor()
@@ -152,15 +152,13 @@ class KiWoomApi(QMainWindow):
         '''
 
     def OnReceiveTrCondition(self, ScrNo, CodeList, ConditionName, nIndex, nNext):
-        #if self.CodeList.get(nIndex):
-        #    return
+        if self.CodeList.get(nIndex):
+            return
 
         self.CodeList[nIndex] = CodeList.split(';')[: - 1]
         for code in self.CodeList[nIndex]:
             item_name = self.GetMasterCodeName(code)
             condition_name = self.ConditionNameList[nIndex]
-
-            print(item_name)
 
             self.db.save_investmentitem(item_name, condition_name)
 
