@@ -1,4 +1,5 @@
 import threading
+import requests
 import time
 import uuid
 import sys
@@ -10,6 +11,15 @@ from PyQt5.QAxContainer import *
 
 import pymysql
 
+PUSHSERVER_URL = "http://localhost/condition_push/"
+
+class pushRequest():
+    def __init__(self, requestURI):
+        self.request_uri = requestURI
+
+    def send(self, arg):
+        res = requests.get(self.request_uri, params=arg)
+    
 
 class APIDatabase():
     def __init__(self, host='localhost', user='', password='', db=''):
@@ -316,6 +326,11 @@ class KiWoomApi(QMainWindow):
 
     @pyqtSlot(str, str, str, str)
     def OnReceiveRealCondition(self, sCode, sType, strConditionName, strConditionIndex):
+        push_request = pushRequest(PUSHSERVER_URL)
+
+        arg['item_code'] = sCode
+        arg['item_name'] = item_name
+
         if sType == "I":
             item_name = self.GetMasterCodeName(sCode)
             print(item_name, "편입")
@@ -323,19 +338,25 @@ class KiWoomApi(QMainWindow):
             self.db.save_investmentitem(sCode, item_name, strConditionName) 
             while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
                 pass
-            
+
+            arg['status'] = '1'
+
         elif sType == "D":
             item_name = self.GetMasterCodeName(sCode)
             print(item_name, "이탈")
 
             self.db.delete_investmentitem(sCode)
 
+            arg['status'] = '0'
+
+        push_request.send(arg)    
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     db = APIDatabase(host='localhost', 
                     user='',
-                    password='',
+                    password='m',
                     db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     api = KiWoomApi(db)
