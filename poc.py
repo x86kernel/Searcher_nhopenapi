@@ -53,6 +53,17 @@ class APIDatabase():
 
         return self.connection.commit()
 
+    def delete_investmentitem(self, item_code):
+        sql = """ delete from api_investmentitems
+                  where item_code=%s """
+
+        try:
+            self.cursor.execute(sql, item_code)
+        except:
+            print(self.cursor._last_executed)
+
+        return self.connection.commit()
+
     
     def update_investmentitem(self, item_code, item_marketcap, 
                               item_transactions, item_current_price, 
@@ -158,9 +169,12 @@ class KiWoomApi(QMainWindow):
     def GetCommData(self, TrCode, RecordName, Index, ItemName):
         return self.kiwoom_ocx.dynamicCall("GetCommData(QString, QString, int, QString)", TrCode, RecordName, Index, ItemName)
 
+    @pyqtSlot(str, int)
+    def GetCommRealData(self, strCode, nFid):
+        return self.kiwoom_ocx.dynamicCall("GetCommRealData(QString, int)", strCode, nFid)
+
 
     def getConditionLoad(self):
-        print("GetConditionLoad()")
         return self.kiwoom_ocx.dynamicCall("GetConditionLoad()")
 
 
@@ -171,7 +185,6 @@ class KiWoomApi(QMainWindow):
 
     @pyqtSlot(str, str, int, int)
     def SendCondition(self, strScrNo, strConditionName, nIndex, nSearch):
-        print("SendCondition(", strScrNo, ",", strConditionName, ",", nIndex, ",", nSearch, ")")
         return self.kiwoom_ocx.dynamicCall("SendCondition(QString, QString, int, int)", strScrNo, strConditionName, nIndex, nSearch)
 
 
@@ -188,9 +201,7 @@ class KiWoomApi(QMainWindow):
 
 
     def OnEventConnect(self, err_code):
-        print(err_code)
         if err_code == 0:
-            pass
             self.do_automatic()
 
     def OnReceiveMsg(self, ScrNo, RQName, TrCode, Msg):
@@ -198,7 +209,6 @@ class KiWoomApi(QMainWindow):
 
     @pyqtSlot(str, str, str, str, str, int, str, str, str)
     def OnReceiveTrData(self, ScrNo, RQName, TrCode, RecordName, PrevNext, DataLength, ErrorCode, Message, SplmMsg):
-        print(RQName)
         if RQName == "주식기본정보":
             cnt = self.GetRepeatCnt(TrCode, RecordName)
 
@@ -234,28 +244,53 @@ class KiWoomApi(QMainWindow):
 
 
     def OnReceiveRealData(self, Code, RealType, RealData):
-        pass
-        #print(Code, RealType)
+        if RealType == "주식시세":
+            print(self.GetMasterCodeName(Code), "시세 변경")
+            item_code = Code
 
+            item_marketcap = self.GetCommRealData(RealType, 311).strip()
 
-    def OnReceiveMsg(self, ScrNo, RQName, TrCode, Msg):
-        print(self.OnReceiveMsg.__name__)
-        print(ScrNo, RQName)
+            item_transactions = self.GetCommRealData(RealType, 13).strip()
 
-    
-    def OnReceiveConditionVer(self, lRet, sMsg):
-        if lRet != 1: 
+            item_current_price = self.GetCommRealData(RealType, 16).strip()
+            item_high_price = self.GetCommRealData(RealType, 17).strip()
+            item_low_price = self.GetCommRealData(RealType, 18).strip()
+            item_price = self.GetCommRealData(RealType, 10).strip()
+            item_yester_price = self.GetMasterLastPrice(item_code)
+
+            item_percentage = self.GetCommRealData(RealType, 12).strip()
+
+            
+            d = dict(item_code=item_code, 
+                    item_marketcap=item_marketcap,
+                    item_transactions=item_transactions,
+                    item_current_price=item_current_price,
+                    item_high_price=item_high_price,
+                    item_low_price=item_low_price,
+                    item_price=item_price,
+                    item_yester_price=item_yester_price,
+                    item_percentage=item_percentage)
+
+            self.db.update_investmentitem(**d)
+        else:
             return
 
-        raw_list = self.getConditionNameList().split(';')
-        raw_list.pop()
 
-        for element in raw_list:
-            index, name = element.split('^')
-            index = int(index)
+    def OnReceiveConditionVer(self, lRet, sMsg):
+        if lRet != 1: 
+            pass
+        else:
+            raw_list = self.getConditionNameList().split(';')
+            raw_list.pop()
 
-            self.ConditionNameList[index] = name
-            self.db.save_conditionlist(index, name)
+            for element in raw_list:
+                index, name = element.split('^')
+                index = int(index)
+
+                self.ConditionNameList[index] = name
+                self.db.save_conditionlist(index, name)
+
+        return self.do_real_automatic()
 
 
     def OnReceiveTrCondition(self, ScrNo, CodeList, ConditionName, nIndex, nNext):
@@ -273,17 +308,27 @@ class KiWoomApi(QMainWindow):
         if not codelen:
             return    
 
-        test = CodeList[: -1]
+        codelist = CodeList[: -1]
         randomString = str(uuid.uuid4())
-        while self.CommKwRqData(test, 0, codelen, 0, "주식기본정보", self.getScrNum()) == -200:
+        while self.CommKwRqData(codelist, 0, codelen, 0, "주식기본정보", self.getScrNum()) == -200:
             pass
 
 
     @pyqtSlot(str, str, str, str)
     def OnReceiveRealCondition(self, sCode, sType, strConditionName, strConditionIndex):
-        print(self.OnReceiveRealCondition.__name__)
-        print(self.GetMasterCodeName(sCode), ": ", sType)
+        if sType == "I":
+            item_name = self.GetMasterCodeName(sCode)
+            print(item_name, "편입")
 
+            self.db.save_investmentitem(sCode, item_name, strConditionName) 
+            while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
+                pass
+            
+        elif sType == "D":
+            item_name = self.GetMasterCodeName(sCode)
+            print(item_name, "이탈")
+
+            self.db.delete_investmentitem(sCode)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
