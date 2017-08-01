@@ -41,35 +41,38 @@ class APIDatabase():
     def save_investmentitem(self, item_code, item_name, condition_id):
         sql = """ insert into api_investmentitems 
                   (item_code, item_name, item_condition_id, 
-                  item_transactions, item_current_price,
-                  item_high_price, item_low_price, item_price,
+                  item_marketcap, item_transactions, item_current_price,
+                  item_high_price, item_low_price, item_price, item_yester_price,
                   item_percentage) 
-                  values(%s, %s, %s, 0, 0, 0, 0, 0, 0) """
+                  values(%s, %s, %s, 0, 0, 0, 0, 0, 0, 0, 0) """
 
         try:
             self.cursor.execute(sql, (item_code, item_name, condition_id))
-        except MySQLError as e:
-            print(cursor._last_executed)
+        except:
+            print(self.cursor._last_executed)
 
         return self.connection.commit()
 
     
-    def update_investmentitem(self, item_code, item_transactions,
-                              item_current_price, item_high_price,
-                              item_low_price, item_price, item_percentage):
+    def update_investmentitem(self, item_code, item_marketcap, 
+                              item_transactions, item_current_price, 
+                              item_high_price, item_low_price, 
+                              item_price, item_percentage,
+                              item_yester_price):
 
         sql = """ update api_investmentitems
-                  set item_transactions=%s, item_current_price=%s,
+                  set item_marketcap=%s, item_transactions=%s, item_current_price=%s,
                   item_high_price=%s, item_low_price=%s,
-                  item_price=%s, item_percentage=%s 
+                  item_price=%s, item_yester_price=%s, item_percentage=%s 
                   where item_code=%s """
         
         try:
-            self.cursor.execute(sql, (item_transactions, item_current_price,
-                                        item_high_price, item_low_price,
-                                        item_price, item_percentage, item_code))
+            self.cursor.execute(sql, (item_marketcap, item_transactions, 
+                                      item_current_price, item_high_price, 
+                                      item_low_price, item_price, item_yester_price,
+                                      item_percentage, item_code))
         except:
-            print(cursor._last_executed)            
+            print(self.cursor._last_executed)            
 
         return self.connection.commit()
 
@@ -180,6 +183,9 @@ class KiWoomApi(QMainWindow):
     def GetMasterCodeName(self, strCode):
         return self.kiwoom_ocx.dynamicCall("GetMasterCodeName(QString)", strCode)
 
+    def GetMasterLastPrice(self, strCode):
+        return self.kiwoom_ocx.dynamicCall("GetMasterLastPrice(QString)", strCode)
+
 
     def OnEventConnect(self, err_code):
         print(err_code)
@@ -199,20 +205,26 @@ class KiWoomApi(QMainWindow):
             for i in range(cnt):
                 item_code = self.GetCommData(TrCode, RQName, i, "종목코드").strip()
 
+                item_marketcap = self.GetCommData(TrCode, RQName, i, "시가총액")
+
                 item_transactions = self.GetCommData(TrCode, RQName, i, "거래량").strip()
+
                 item_current_price = self.GetCommData(TrCode, RQName, i, "시가").strip()
                 item_high_price = self.GetCommData(TrCode, RQName, i, "고가").strip()
                 item_low_price = self.GetCommData(TrCode, RQName, i, "저가").strip()
                 item_price = self.GetCommData(TrCode, RQName, i, "현재가").strip()
+                item_yester_price = self.GetMasterLastPrice(item_code)
 
                 item_percentage = self.GetCommData(TrCode, RQName, i, "등락율").strip()
 
                 d = dict(item_code=item_code, 
+                        item_marketcap=item_marketcap,
                         item_transactions=item_transactions,
                         item_current_price=item_current_price,
                         item_high_price=item_high_price,
                         item_low_price=item_low_price,
                         item_price=item_price,
+                        item_yester_price=item_yester_price,
                         item_percentage=item_percentage)
 
 
@@ -222,8 +234,8 @@ class KiWoomApi(QMainWindow):
 
 
     def OnReceiveRealData(self, Code, RealType, RealData):
-        print("test")
-        print(Code, RealType)
+        pass
+        #print(Code, RealType)
 
 
     def OnReceiveMsg(self, ScrNo, RQName, TrCode, Msg):
