@@ -11,7 +11,7 @@ from PyQt5.QAxContainer import *
 
 import pymysql
 
-PUSHSERVER_URL = "http://localhost/condition_push/"
+PUSHSERVER_URL = "http://localhost:8000/condition_push/"
 
 class pushRequest():
     def __init__(self, requestURI):
@@ -254,6 +254,7 @@ class KiWoomApi(QMainWindow):
 
 
     def OnReceiveRealData(self, Code, RealType, RealData):
+        print(Code, RealType)
         if RealType == "주식시세":
             print(self.GetMasterCodeName(Code), "시세 변경")
             item_code = Code
@@ -320,6 +321,7 @@ class KiWoomApi(QMainWindow):
 
         codelist = CodeList[: -1]
         randomString = str(uuid.uuid4())
+        time.sleep(1)
         while self.CommKwRqData(codelist, 0, codelen, 0, "주식기본정보", self.getScrNum()) == -200:
             pass
 
@@ -328,7 +330,7 @@ class KiWoomApi(QMainWindow):
     def OnReceiveRealCondition(self, sCode, sType, strConditionName, strConditionIndex):
         push_request = pushRequest(PUSHSERVER_URL)
 
-        arg['item_code'] = sCode
+        arg['condition_index'] = strConditionIndex
         arg['item_name'] = item_name
 
         if sType == "I":
@@ -356,7 +358,7 @@ if __name__ == "__main__":
 
     db = APIDatabase(host='localhost', 
                     user='',
-                    password='m',
+                    password='',
                     db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     api = KiWoomApi(db)
