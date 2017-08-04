@@ -330,8 +330,9 @@ class KiWoomApi(QMainWindow):
     def OnReceiveRealCondition(self, sCode, sType, strConditionName, strConditionIndex):
         push_request = pushRequest(PUSHSERVER_URL)
 
+        arg = dict()    
+        item_name = str()
         arg['condition_index'] = strConditionIndex
-        arg['item_name'] = item_name
 
         if sType == "I":
             item_name = self.GetMasterCodeName(sCode)
@@ -351,6 +352,8 @@ class KiWoomApi(QMainWindow):
 
             arg['status'] = '0'
 
+
+        arg['item_name'] = item_name
         push_request.send(arg)    
 
 if __name__ == "__main__":
