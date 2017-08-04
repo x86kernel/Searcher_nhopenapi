@@ -35,11 +35,11 @@ class APIDatabase():
 
     def save_conditionlist(self, index, condition_name):
         sql = """ insert into api_conditionexpresslist 
-                  (express_index, express_name) 
-                  values (%s, %s) 
+                  (express_index, express_name, express_content)
+                  values (%s, %s, %s)
                   ON DUPLICATE KEY UPDATE express_name=%s """
 
-        self.cursor.execute(sql, (index, condition_name, condition_name))
+        self.cursor.execute(sql, (index, condition_name, '', condition_name))
         return self.connection.commit()
 
 
