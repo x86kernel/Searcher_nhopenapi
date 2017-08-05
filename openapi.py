@@ -361,12 +361,16 @@ class KiWoomApi(QMainWindow):
         push_request.send(arg)    
 
 if __name__ == "__main__":
-    logging.basicConfig(filename='openapi.log', filemode='w', level=logging.DEBUG)
+    logging.basicConfig(format='%(asctime)s %(message)s', 
+                        filename='openapi.log', 
+                        filemode='w', 
+                        level=logging.DEBUG,
+                        datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='root',
-                    password='m0425s000',
-                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    user='',
+                    password='',
+                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     app = QApplication(sys.argv)
     api = KiWoomApi(db)
