@@ -1,5 +1,6 @@
 import threading
 import requests
+import logging
 import time
 import uuid
 import sys
@@ -59,7 +60,8 @@ class APIDatabase():
         try:
             self.cursor.execute(sql, (item_code, item_name, condition_id))
         except:
-            print(self.cursor._last_executed)
+            logging.error('%s %s', self.save_investmentitem.__name__, 
+                                   self.cursor,_last_executed)
 
         return self.connection.commit()
 
@@ -70,7 +72,8 @@ class APIDatabase():
         try:
             self.cursor.execute(sql, item_code)
         except:
-            print(self.cursor._last_executed)
+            logging.error('%s %s', self.delete_investmentitem.__name__,
+                                   self.cursor._last_executed)
 
         return self.connection.commit()
 
@@ -93,7 +96,8 @@ class APIDatabase():
                                       item_low_price, item_price, item_yester_price,
                                       item_percentage, item_code))
         except:
-            print(self.cursor._last_executed)            
+            logging.error('%s %s', self.update_investmentitem.__name__, 
+                                  self.cursor._last_executed)
 
         return self.connection.commit()
 
@@ -135,7 +139,6 @@ class KiWoomApi(QMainWindow):
 
 
     def do_automatic(self):
-        #QTimer.singleShot(1000 * 60 * 2, lambda: self.do_real_automatic())
         self.btn1.animateClick() 
 
         
@@ -212,10 +215,11 @@ class KiWoomApi(QMainWindow):
 
     def OnEventConnect(self, err_code):
         if err_code == 0:
+            logging.info('%s %d', self.OnEventConnect.__name__, err_code)
             self.do_automatic()
 
     def OnReceiveMsg(self, ScrNo, RQName, TrCode, Msg):
-        print(OnRecevieMsg.__name__, RQName, Msg)
+        logging.info('%s %s %s', self.OnReceiveMsg.__name__, RQName, Msg)
 
     @pyqtSlot(str, str, str, str, str, int, str, str, str)
     def OnReceiveTrData(self, ScrNo, RQName, TrCode, RecordName, PrevNext, DataLength, ErrorCode, Message, SplmMsg):
@@ -254,7 +258,7 @@ class KiWoomApi(QMainWindow):
 
 
     def OnReceiveRealData(self, Code, RealType, RealData):
-        print(Code, RealType)
+        logging.info('%s %s %s', self.OnReceiveRealData.__name__, Code, RealType)
         if RealType == "주식시세":
             print(self.GetMasterCodeName(Code), "시세 변경")
             item_code = Code
@@ -336,7 +340,7 @@ class KiWoomApi(QMainWindow):
 
         if sType == "I":
             item_name = self.GetMasterCodeName(sCode)
-            print(item_name, "편입")
+            logging.info('%s 편입', item_name)
 
             self.db.save_investmentitem(sCode, item_name, strConditionName) 
             while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
@@ -346,7 +350,7 @@ class KiWoomApi(QMainWindow):
 
         elif sType == "D":
             item_name = self.GetMasterCodeName(sCode)
-            print(item_name, "이탈")
+            logging.info('%s 이탈', item_name)
 
             self.db.delete_investmentitem(sCode)
 
@@ -357,13 +361,14 @@ class KiWoomApi(QMainWindow):
         push_request.send(arg)    
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    logging.basicConfig(filename='openapi.log', filemode='w', level=logging.DEBUG)
 
     db = APIDatabase(host='localhost', 
-                    user='',
-                    password='',
-                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    user='root',
+                    password='m0425s000',
+                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
+    app = QApplication(sys.argv)
     api = KiWoomApi(db)
     api.show()
     app.exec_()
