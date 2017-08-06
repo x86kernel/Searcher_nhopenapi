@@ -48,6 +48,21 @@ class APIDatabase():
         sql="truncate api_investmentitems"
         self.cursor.execute(sql)
 
+    def select_investmentitem(self, field_name, where_name, where_value):
+        sql = """ select %s
+                  from api_investmentitems
+                  where %s=%s """
+        
+        try:
+            self.cursor.execute(sql, (field_name,
+                                      where_name,
+                                      where_value))
+        except:
+            logging.error('%s %s', self.select_investmentitem.__name__,
+                                   self.cursor._last_executed)
+
+        return self.cursor.fetchone() 
+        
 
     def save_investmentitem(self, item_code, item_name, condition_id):
         sql = """ insert into api_investmentitems 
@@ -61,7 +76,7 @@ class APIDatabase():
             self.cursor.execute(sql, (item_code, item_name, condition_id))
         except:
             logging.error('%s %s', self.save_investmentitem.__name__, 
-                                   self.cursor,_last_executed)
+                                   self.cursor._last_executed)
 
         return self.connection.commit()
 
@@ -340,7 +355,7 @@ class KiWoomApi(QMainWindow):
 
         if sType == "I":
             item_name = self.GetMasterCodeName(sCode)
-            logging.info('%s 편입', item_name)
+            logging.info('%s 편입 %s', item_name, arg['item_price'])
 
             self.db.save_investmentitem(sCode, item_name, strConditionName) 
             while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
@@ -350,7 +365,7 @@ class KiWoomApi(QMainWindow):
 
         elif sType == "D":
             item_name = self.GetMasterCodeName(sCode)
-            logging.info('%s 이탈', item_name)
+            logging.info('%s 이탈 %s', item_name, arg['item_price'])
 
             self.db.delete_investmentitem(sCode)
 
@@ -358,6 +373,7 @@ class KiWoomApi(QMainWindow):
 
 
         arg['item_name'] = item_name
+        arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
         push_request.send(arg)    
 
 if __name__ == "__main__":
