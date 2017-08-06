@@ -126,14 +126,27 @@ class KiWoomApi(QMainWindow):
 
     def __init__(self, Database):
         super().__init__()
+        
+        self.setWindowTitle('Searcher')
+        self.setGeometry(300, 300, 220, 220)
 
         self.db = Database
 
-        self.btn1 = QPushButton("automatic", self)
-        self.btn1.clicked.connect(self.automaticbtn_event)
+        self.btn_after_login = QPushButton("automatic", self)
+        self.btn_after_login.setVisible(False)
+        self.btn_after_login.clicked.connect(self.automaticbtn_event)
 
-        self.btn2 = QPushButton("real_automatic", self)
-        self.btn2.clicked.connect(self.real_automatic_event)
+        self.btn_after_init = QPushButton("real_automatic", self)
+        self.btn_after_init.setVisible(False)
+        self.btn_after_init.clicked.connect(self.real_automatic_event)
+
+        self.status_list = QListWidget(self)
+        self.status_list.setGeometry(10, 10, 200, 150)
+        self.status_list.setEnabled(False)
+
+        self.logout_button = QPushButton('종료', self)
+        self.logout_button.setGeometry(10, 180, 200, 30)
+        self.logout_button.setEnabled(False)
 
         self.kiwoom_ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
 
@@ -153,16 +166,20 @@ class KiWoomApi(QMainWindow):
         self.CommConnect()
 
 
-    def do_automatic(self):
-        self.btn1.animateClick() 
+    def add_status_message(self, msg):
+        return self.status_list.addItem(msg)
+
+
+    def do_automatic(self):  # automatic progress trigger when after login
+        self.btn_after_login.animateClick() 
 
         
     def automaticbtn_event(self):
         self.getConditionLoad()
 
 
-    def do_real_automatic(self):
-        self.btn2.animateClick()
+    def do_real_automatic(self):  # automatic process trigger when after init
+        self.btn_after_init.animateClick()
 
 
     def real_automatic_event(self):
@@ -231,6 +248,10 @@ class KiWoomApi(QMainWindow):
     def OnEventConnect(self, err_code):
         if err_code == 0:
             logging.info('%s %d', self.OnEventConnect.__name__, err_code)
+
+            self.logout_button.setEnabled(True)
+            
+            self.add_status_message('로그인 성공')
             self.do_automatic()
 
     def OnReceiveMsg(self, ScrNo, RQName, TrCode, Msg):
@@ -319,6 +340,8 @@ class KiWoomApi(QMainWindow):
 
                 self.ConditionNameList[index] = name
                 self.db.save_conditionlist(index, name)
+
+                self.add_status_message('조건식 {} 가져옴'.format(name))
 
         return self.do_real_automatic()
 
