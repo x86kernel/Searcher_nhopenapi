@@ -5,7 +5,7 @@ import time
 import uuid
 import sys
 
-from PyQt5.QtCore import pyqtSlot, QThread, QTimer
+from PyQt5.QtCore import pyqtSlot, QThread, QTimer, QCoreApplication
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 from PyQt5.QAxContainer import *
@@ -147,6 +147,7 @@ class KiWoomApi(QMainWindow):
         self.logout_button = QPushButton('종료', self)
         self.logout_button.setGeometry(10, 180, 200, 30)
         self.logout_button.setEnabled(False)
+        self.logout_button.clicked.connect(self.logout_button_handler)
 
         self.kiwoom_ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
 
@@ -187,6 +188,18 @@ class KiWoomApi(QMainWindow):
             self.SendCondition(str(self.getScrNum()), name, index, 1)
 
 
+    def logout_button_handler(self):
+        if self.GetConnectState():
+            quit_msg = '정말 종료하시겠습니까?'
+            reply = QMessageBox.question(self, 'Message',
+            quit_msg, QMessageBox.Yes, QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                QCoreApplication.exit(0)
+            else:
+                return
+
+
     def getScrNum(self):
         if self.scrNum < 9999:
             self.scrNum += 1
@@ -198,6 +211,10 @@ class KiWoomApi(QMainWindow):
 
     def CommConnect(self):
         return self.kiwoom_ocx.dynamicCall("CommConnect()")
+
+    
+    def GetConnectState(self):
+        return self.kiwoom_ocx.dynamicCall("GetConnectState()")
 
 
     @pyqtSlot(str, str)
@@ -289,14 +306,16 @@ class KiWoomApi(QMainWindow):
 
 
                 self.db.update_investmentitem(**d)
-        else:
-            return
+
+            self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
+
+        return
 
 
     def OnReceiveRealData(self, Code, RealType, RealData):
         logging.info('%s %s %s', self.OnReceiveRealData.__name__, Code, RealType)
         if RealType == "주식시세":
-            print(self.GetMasterCodeName(Code), "시세 변경")
+            item_name = self.GetMasterCodeName(Code)
             item_code = Code
 
             item_marketcap = self.GetCommRealData(RealType, 311).strip()
@@ -323,8 +342,9 @@ class KiWoomApi(QMainWindow):
                     item_percentage=item_percentage)
 
             self.db.update_investmentitem(**d)
-        else:
-            return
+            self.add_status_message('시세 변경 {}'.format(item_name))
+
+        return
 
 
     def OnReceiveConditionVer(self, lRet, sMsg):
@@ -379,6 +399,7 @@ class KiWoomApi(QMainWindow):
         if sType == "I":
             item_name = self.GetMasterCodeName(sCode)
             logging.info('%s 편입 %s', item_name, arg['item_price'])
+            self.add_status_message('{} 종목 편입'.format(item_name))
 
             self.db.save_investmentitem(sCode, item_name, strConditionName) 
             while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
@@ -389,6 +410,7 @@ class KiWoomApi(QMainWindow):
         elif sType == "D":
             item_name = self.GetMasterCodeName(sCode)
             logging.info('%s 이탈 %s', item_name, arg['item_price'])
+            self.add_status_message('{} 종목 이탈'.format(item_name))
 
             self.db.delete_investmentitem(sCode)
 
@@ -407,9 +429,9 @@ if __name__ == "__main__":
                         datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='',
-                    password='',
-                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    user='root',
+                    password='m0425s000',
+                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     app = QApplication(sys.argv)
     api = KiWoomApi(db)
