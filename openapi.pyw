@@ -165,7 +165,10 @@ class KiWoomApi(QMainWindow):
 
 
     def add_status_message(self, msg):
-        return self.status_list.addItem(msg)
+        self.status_list.addItem(msg)
+        self.status_list.scrollToBottom()
+
+        return
 
 
     def do_automatic(self):  # automatic progress trigger when after login
