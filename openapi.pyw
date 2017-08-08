@@ -51,17 +51,15 @@ class APIDatabase():
     def select_investmentitem(self, field_name, where_name, where_value):
         sql = """ select %s
                   from api_investmentitems
-                  where %s=%s """
+                  where %s=%s """ % (field_name, where_name, where_value)
         
         try:
-            self.cursor.execute(sql, (field_name,
-                                      where_name,
-                                      where_value))
+            self.cursor.execute(sql)
         except:
             logging.error('%s %s', self.select_investmentitem.__name__,
                                    self.cursor._last_executed)
 
-        return self.cursor.fetchone() 
+        return self.cursor.fetchone()[field_name]
         
 
     def save_investmentitem(self, item_code, item_name, condition_id):
@@ -142,7 +140,6 @@ class KiWoomApi(QMainWindow):
 
         self.status_list = QListWidget(self)
         self.status_list.setGeometry(10, 10, 200, 150)
-        self.status_list.setEnabled(False)
 
         self.logout_button = QPushButton('종료', self)
         self.logout_button.setGeometry(10, 180, 200, 30)
@@ -197,7 +194,9 @@ class KiWoomApi(QMainWindow):
             if reply == QMessageBox.Yes:
                 QCoreApplication.exit(0)
             else:
-                return
+                pass
+
+        return
 
 
     def getScrNum(self):
@@ -394,6 +393,8 @@ class KiWoomApi(QMainWindow):
 
         arg = dict()    
         item_name = str()
+
+        arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
         arg['condition_index'] = strConditionIndex
 
         if sType == "I":
@@ -418,7 +419,6 @@ class KiWoomApi(QMainWindow):
 
 
         arg['item_name'] = item_name
-        arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
         push_request.send(arg)    
 
 if __name__ == "__main__":
@@ -429,9 +429,9 @@ if __name__ == "__main__":
                         datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='root',
-                    password='m0425s000',
-                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    user='',
+                    password='',
+                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     app = QApplication(sys.argv)
     api = KiWoomApi(db)
