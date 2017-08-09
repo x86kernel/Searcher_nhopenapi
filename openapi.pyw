@@ -397,7 +397,8 @@ class KiWoomApi(QMainWindow):
         arg = dict()    
         item_name = str()
 
-        arg['condition_index'] = strConditionName
+        arg['condiiton_name'] = strConditionName
+        arg['condition_index'] = strConditionIndex
 
         if sType == "I":
             item_name = self.GetMasterCodeName(sCode)
