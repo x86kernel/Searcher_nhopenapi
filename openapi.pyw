@@ -397,7 +397,7 @@ class KiWoomApi(QMainWindow):
         arg = dict()    
         item_name = str()
 
-        arg['condition_index'] = strConditionIndex
+        arg['condition_index'] = strConditionName
 
         if sType == "I":
             item_name = self.GetMasterCodeName(sCode)
@@ -407,16 +407,17 @@ class KiWoomApi(QMainWindow):
             while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
                 pass
 
+            time.sleep(1)
             arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
             arg['status'] = '1'
 
-            logging.info('%s 편입 %s', item_name, arg['item_price'])
+            logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
 
         elif sType == "D":
             item_name = self.GetMasterCodeName(sCode)
             arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
 
-            logging.info('%s 이탈 %s', item_name, arg['item_price'])
+            logging.info('조건식 %s, %s 이탈 %s', strConditionName, item_name, arg['item_price'])
 
             self.add_status_message('{} 종목 이탈'.format(item_name))
 
