@@ -1,6 +1,7 @@
 import threading
 import requests
 import logging
+import queue
 import time
 import uuid
 import sys
@@ -17,10 +18,29 @@ PUSHSERVER_URL = "http://localhost:8000/condition_push/"
 class pushRequest():
     def __init__(self, requestURI):
         self.request_uri = requestURI
+        self.requestQueue = queue.Queue()
 
-    def send(self, arg):
-        res = requests.get(self.request_uri, params=arg)
-    
+    def enqueue_request(self, arg):
+        self.requestQueue.put(arg)
+
+    def send(self):
+        if self.requestQueue.qsize():
+            arg = self.requestQueue.get()
+
+            res = requests.get(self.request_uri, params=arg)
+
+class pushThread(QThread):
+    def __init__(self, pushRequest):
+        QThread.__init__(self)
+        self.push_request = pushRequest
+
+    def __del__(self):
+        self.wait()
+
+    def run(self):
+        while 1:
+            time.sleep(1)
+            self.push_request.send()
 
 class APIDatabase():
     def __init__(self, host='localhost', user='', password='', db=''):
@@ -129,6 +149,10 @@ class KiWoomApi(QMainWindow):
         self.setGeometry(300, 300, 220, 220)
 
         self.db = Database
+
+        self.push_request = pushRequest(PUSHSERVER_URL)
+        self.push_thread = pushThread(self.push_request)
+        self.push_thread.start()
 
         self.btn_after_login = QPushButton("automatic", self)
         self.btn_after_login.setVisible(False)
@@ -392,8 +416,6 @@ class KiWoomApi(QMainWindow):
 
     @pyqtSlot(str, str, str, str)
     def OnReceiveRealCondition(self, sCode, sType, strConditionName, strConditionIndex):
-        push_request = pushRequest(PUSHSERVER_URL)
-
         arg = dict()    
         item_name = str()
 
@@ -428,7 +450,7 @@ class KiWoomApi(QMainWindow):
 
 
         arg['item_name'] = item_name
-        push_request.send(arg)    
+        self.push_request.enqueue_request(arg)
 
 if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s %(message)s', 
