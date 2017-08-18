@@ -335,6 +335,8 @@ class KiWoomApi(QMainWindow):
 
             self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
 
+        
+
         return
 
 
@@ -430,8 +432,13 @@ class KiWoomApi(QMainWindow):
             while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
                 pass
 
-            time.sleep(1)
-            arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
+            while 1:
+                arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
+                if arg['item_price']:
+                    break
+
+                time.sleep(1)
+
             arg['status'] = '1'
 
             logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
@@ -448,9 +455,9 @@ class KiWoomApi(QMainWindow):
 
             arg['status'] = '0'
 
-
         arg['item_name'] = item_name
         self.push_request.enqueue_request(arg)
+
 
 if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s %(message)s', 
@@ -460,9 +467,9 @@ if __name__ == "__main__":
                         datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='',
-                    password='',
-                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    user='root',
+                    password='m0425s000',
+                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     app = QApplication(sys.argv)
     api = KiWoomApi(db)
