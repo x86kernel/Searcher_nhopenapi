@@ -18,40 +18,34 @@ PUSHSERVER_URL = "http://localhost:8000/condition_push/"
 class pushRequest():
     def __init__(self, requestURI):
         self.request_uri = requestURI
-        self.requestQueue = queue.Queue()
 
-    def enqueue_request(self, arg):
-        self.requestQueue.put(arg)
-
-    def send(self):
-        if self.requestQueue.qsize():
-            arg = self.requestQueue.get()
-
-            res = requests.get(self.request_uri, params=arg)
-
-class pushThread(QThread):
-    def __init__(self, pushRequest):
-        QThread.__init__(self)
-        self.push_request = pushRequest
-
-    def __del__(self):
-        self.wait()
-
-    def run(self):
-        while 1:
-            time.sleep(1)
-            self.push_request.send()
+    def send(self, arg):
+        return requests.get(self.request_uri, params=arg)
 
 class APIDatabase():
     def __init__(self, host='localhost', user='', password='', db=''):
-        self.connection = pymysql.connect(host=host,
-                                          user=user,
-                                          password=password,
-                                          db=db,
-                                          charset='utf8',
-                                          cursorclass=pymysql.cursors.DictCursor)
+        self.host = host
+        self.user = user
+        self.password = password
+        self.db = db
+
+        self.connection = object()
+        self.connect_db(host, user, password, db)
 
         self.cursor = self.connection.cursor()
+
+    def connect_db(self, host, user, password, db):
+        self.connection = pymysql.connect(host=host,
+                                        user=user,
+                                        password=password,
+                                        db=db,
+                                        charset='utf8',
+                                        cursorclass=pymysql.cursors.DictCursor)
+
+    def reconnect_db(self):
+        self.connection = self.connect_db(self.host, self.user, self.password, self.db)
+
+
 
 
     def save_conditionlist(self, index, condition_name):
@@ -60,9 +54,14 @@ class APIDatabase():
                   values (%s, %s, %s)
                   ON DUPLICATE KEY UPDATE express_name=%s """
 
-        self.cursor.execute(sql, (index, condition_name, '', condition_name))
-        return self.connection.commit()
-
+        while True:
+            try:
+                self.cursor.execute(sql, (index, condition_name, '', condition_name))
+                self.connection.commit()
+            except:
+                self.reconnect_db()
+                continue
+            break
 
     def truncate_investmentitem(self):
         sql="truncate api_investmentitems"
@@ -73,13 +72,22 @@ class APIDatabase():
                   from api_investmentitems
                   where %s=%s """ % (field_name, where_name, where_value)
         
-        try:
-            self.cursor.execute(sql)
-        except:
-            logging.error('%s %s', self.select_investmentitem.__name__,
-                                   self.cursor._last_executed)
+        while True:
+            try:
+                self.cursor.execute(sql)
+            except:
+                logging.error('%s %s', self.select_investmentitem.__name__,
+                                    self.cursor._last_executed)
+                self.reconnect_db()
+                continue
 
-        return self.cursor.fetchone()[field_name]
+            break
+
+        try:
+            return self.cursor.fetchone()[field_name]
+        except:
+            return False
+
         
 
     def save_investmentitem(self, item_code, item_name, condition_id):
@@ -90,25 +98,34 @@ class APIDatabase():
                   item_percentage) 
                   values(%s, %s, %s, 0, 0, 0, 0, 0, 0, 0, 0) """
 
-        try:
-            self.cursor.execute(sql, (item_code, item_name, condition_id))
-        except:
-            logging.error('%s %s', self.save_investmentitem.__name__, 
-                                   self.cursor._last_executed)
+        while 1:
+            try:
+                self.cursor.execute(sql, (item_code, item_name, condition_id))
+                self.connection.commit()
+            except:
+                logging.error('%s %s', self.save_investmentitem.__name__, 
+                                    self.cursor._last_executed)
+                self.reconnect_db()
+                continue
+            break
 
-        return self.connection.commit()
 
     def delete_investmentitem(self, item_code):
         sql = """ delete from api_investmentitems
                   where item_code=%s """
 
-        try:
-            self.cursor.execute(sql, item_code)
-        except:
-            logging.error('%s %s', self.delete_investmentitem.__name__,
-                                   self.cursor._last_executed)
+        while 1:
+            try:
+                self.cursor.execute(sql, item_code)
+                self.connection.commit()
+            except:
+                logging.error('%s %s', self.delete_investmentitem.__name__,
+                                    self.cursor._last_executed)
+                self.reconnect_db()
+                continue
 
-        return self.connection.commit()
+            break
+
 
     
     def update_investmentitem(self, item_code, item_marketcap, 
@@ -123,17 +140,20 @@ class APIDatabase():
                   item_price=%s, item_yester_price=%s, item_percentage=%s 
                   where item_code=%s """
         
-        try:
-            self.cursor.execute(sql, (item_marketcap, item_transactions, 
-                                      item_current_price, item_high_price, 
-                                      item_low_price, item_price, item_yester_price,
-                                      item_percentage, item_code))
-        except:
-            logging.error('%s %s', self.update_investmentitem.__name__, 
-                                  self.cursor._last_executed)
+        while 1:    
+            try:
+                self.cursor.execute(sql, (item_marketcap, item_transactions, 
+                                        item_current_price, item_high_price, 
+                                        item_low_price, item_price, item_yester_price,
+                                        item_percentage, item_code))
+                self.connection.commit()
+            except:
+                logging.error('%s %s', self.update_investmentitem.__name__, 
+                                    self.cursor._last_executed)
+                self.reconnect_db()
+                continue
 
-        return self.connection.commit()
-
+            break
 
 
 class KiWoomApi(QMainWindow):
@@ -151,8 +171,6 @@ class KiWoomApi(QMainWindow):
         self.db = Database
 
         self.push_request = pushRequest(PUSHSERVER_URL)
-        self.push_thread = pushThread(self.push_request)
-        self.push_thread.start()
 
         self.btn_after_login = QPushButton("automatic", self)
         self.btn_after_login.setVisible(False)
@@ -335,6 +353,8 @@ class KiWoomApi(QMainWindow):
 
             self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
 
+        
+
         return
 
 
@@ -430,8 +450,13 @@ class KiWoomApi(QMainWindow):
             while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
                 pass
 
-            time.sleep(1)
-            arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
+            while 1:
+                arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
+                if arg['item_price']:
+                    break
+
+                time.sleep(1)
+
             arg['status'] = '1'
 
             logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
@@ -448,9 +473,9 @@ class KiWoomApi(QMainWindow):
 
             arg['status'] = '0'
 
-
         arg['item_name'] = item_name
-        self.push_request.enqueue_request(arg)
+        self.push_request.send(arg)
+
 
 if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s %(message)s', 
