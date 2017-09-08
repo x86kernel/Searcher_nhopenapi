@@ -16,11 +16,36 @@ import pymysql
 PUSHSERVER_URL = "http://localhost:8000/condition_push/"
 
 class pushRequest():
-    def __init__(self, requestURI):
+    def __init__(self, requestURI, db):
         self.request_uri = requestURI
+        self.requestQueue = queue.Queue()
+        self.db = db
 
-    def send(self, arg):
-        return requests.get(self.request_uri, params=arg)
+    def enqueue_request(self, arg):
+        self.requestQueue.put(arg)
+
+    def send(self):
+        if self.requestQueue.qsize():
+            arg = self.requestQueue.get()
+
+            while not arg['item_price']:
+                arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', arg['sCode'])
+
+            res = requests.get(self.request_uri, params=arg)
+        
+class pushThread(QThread):
+    def __init__(self, pushRequest):
+        QThread.__init__(self)
+        self.push_request = pushRequest
+
+    def __del__(self):
+        self.wait()
+
+    def run(self):
+        while 1:
+            self.push_request.send()
+        
+
 
 class APIDatabase():
     def __init__(self, host='localhost', user='', password='', db=''):
@@ -29,13 +54,11 @@ class APIDatabase():
         self.password = password
         self.db = db
 
-        self.connection = object()
-        self.connect_db(host, user, password, db)
+        self.connection = self.connect_db(host, user, password, db)
 
-        self.cursor = self.connection.cursor()
 
     def connect_db(self, host, user, password, db):
-        self.connection = pymysql.connect(host=host,
+        return pymysql.connect(host=host,
                                         user=user,
                                         password=password,
                                         db=db,
@@ -43,6 +66,11 @@ class APIDatabase():
                                         cursorclass=pymysql.cursors.DictCursor)
 
     def reconnect_db(self):
+        try:
+            self.connection.close()
+        except:
+            pass
+        
         self.connection = self.connect_db(self.host, self.user, self.password, self.db)
 
 
@@ -54,38 +82,56 @@ class APIDatabase():
                   values (%s, %s, %s)
                   ON DUPLICATE KEY UPDATE express_name=%s """
 
-        while True:
-            try:
-                self.cursor.execute(sql, (index, condition_name, '', condition_name))
-                self.connection.commit()
+        cursor = object()
+
+        while 1:
+            cursor = self.connection.cursor()
+            cursor.execute(sql, (index, condition_name, '', condition_name))
+            self.connection.commit()
+            '''
             except:
                 self.reconnect_db()
                 continue
+                '''
             break
+
+        return cursor.close()
+        
 
     def truncate_investmentitem(self):
         sql="truncate api_investmentitems"
-        self.cursor.execute(sql)
+        cursor = self.connection.cursor()
+        cursor.execute(sql)
 
     def select_investmentitem(self, field_name, where_name, where_value):
         sql = """ select %s
                   from api_investmentitems
                   where %s=%s """ % (field_name, where_name, where_value)
-        
+
+
+        cursor = object()
+
         while True:
             try:
-                self.cursor.execute(sql)
+                
+                cursor = self.connection.cursor()
+                cursor.execute(sql)
+            
             except:
                 logging.error('%s %s', self.select_investmentitem.__name__,
-                                    self.cursor._last_executed)
+                                    cursor._last_executed)
+                
                 self.reconnect_db()
                 continue
-
+            
             break
 
+
         try:
-            return self.cursor.fetchone()[field_name]
+            cursor.close()
+            return cursor.fetchone()[field_name]
         except:
+            cursor.close()
             return False
 
         
@@ -98,32 +144,40 @@ class APIDatabase():
                   item_percentage) 
                   values(%s, %s, %s, 0, 0, 0, 0, 0, 0, 0, 0) """
 
-        while 1:
+        cursor = object()
+
+        while True:
             try:
-                self.cursor.execute(sql, (item_code, item_name, condition_id))
+                cursor = self.connection.cursor()
+                cursor.execute(sql, (item_code, item_name, condition_id))
                 self.connection.commit()
+
             except:
                 logging.error('%s %s', self.save_investmentitem.__name__, 
-                                    self.cursor._last_executed)
+                                    cursor._last_executed)
                 self.reconnect_db()
-                continue
+                continue 
+        
             break
+            
+
 
 
     def delete_investmentitem(self, item_code):
         sql = """ delete from api_investmentitems
                   where item_code=%s """
 
-        while 1:
+        while True:
             try:
-                self.cursor.execute(sql, item_code)
+                cursor = self.connection.cursor()
+                cursor.execute(sql, item_code)
                 self.connection.commit()
             except:
                 logging.error('%s %s', self.delete_investmentitem.__name__,
-                                    self.cursor._last_executed)
+                                    cursor._last_executed)
                 self.reconnect_db()
                 continue
-
+                
             break
 
 
@@ -139,21 +193,29 @@ class APIDatabase():
                   item_high_price=%s, item_low_price=%s,
                   item_price=%s, item_yester_price=%s, item_percentage=%s 
                   where item_code=%s """
+
+        cursor = object()
         
-        while 1:    
+        while True:
             try:
-                self.cursor.execute(sql, (item_marketcap, item_transactions, 
+                
+                cursor = self.connection.cursor()
+                cursor.execute(sql, (item_marketcap, item_transactions, 
                                         item_current_price, item_high_price, 
                                         item_low_price, item_price, item_yester_price,
                                         item_percentage, item_code))
                 self.connection.commit()
+            
             except:
                 logging.error('%s %s', self.update_investmentitem.__name__, 
-                                    self.cursor._last_executed)
+                                    cursor._last_executed)
                 self.reconnect_db()
                 continue
-
+            
             break
+            
+        return cursor.close()
+
 
 
 class KiWoomApi(QMainWindow):
@@ -170,7 +232,10 @@ class KiWoomApi(QMainWindow):
 
         self.db = Database
 
-        self.push_request = pushRequest(PUSHSERVER_URL)
+        self.push_request = pushRequest(PUSHSERVER_URL, self.db)
+        self.push_thread = pushThread(self.push_request)
+        self.push_thread.start()
+
 
         self.btn_after_login = QPushButton("automatic", self)
         self.btn_after_login.setVisible(False)
@@ -439,7 +504,7 @@ class KiWoomApi(QMainWindow):
         arg = dict()    
         item_name = str()
 
-        arg['condiiton_name'] = strConditionName
+        arg['condition_name'] = strConditionName
         arg['condition_index'] = strConditionIndex
 
         if sType == "I":
@@ -450,12 +515,8 @@ class KiWoomApi(QMainWindow):
             while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
                 pass
 
-            while 1:
-                arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
-                if arg['item_price']:
-                    break
+            arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
 
-                time.sleep(1)
 
             arg['status'] = '1'
 
@@ -473,8 +534,9 @@ class KiWoomApi(QMainWindow):
 
             arg['status'] = '0'
 
+        arg['sCode'] = sCode
         arg['item_name'] = item_name
-        self.push_request.send(arg)
+        self.push_request.enqueue_request(arg)
 
 
 if __name__ == "__main__":
