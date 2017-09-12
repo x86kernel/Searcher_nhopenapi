@@ -13,14 +13,38 @@ from PyQt5.QAxContainer import *
 
 import pymysql
 
-PUSHSERVER_URL = "http://localhost:8000/condition_push/"
+PUSHSERVER_URL = "http://localhost:3000/push/"
 
 class pushRequest():
-    def __init__(self, requestURI):
+    def __init__(self, requestURI, db):
         self.request_uri = requestURI
+        self.requestQueue = queue.Queue()
+        self.db = db
 
-    def send(self, arg):
-        return requests.get(self.request_uri, params=arg)
+    def enqueue_request(self, arg):
+        self.requestQueue.put(arg)
+
+    def send(self):
+        if self.requestQueue.qsize():
+            arg = self.requestQueue.get()
+            try:
+                res = requests.get(self.request_uri, params=arg)
+            except:
+                pass
+        
+class pushThread(QThread):
+    def __init__(self, pushRequest):
+        QThread.__init__(self)
+        self.push_request = pushRequest
+
+    def __del__(self):
+        self.wait()
+
+    def run(self):
+        while 1:
+            self.push_request.send()
+        
+
 
 class APIDatabase():
     def __init__(self, host='localhost', user='', password='', db=''):
@@ -29,13 +53,11 @@ class APIDatabase():
         self.password = password
         self.db = db
 
-        self.connection = object()
-        self.connect_db(host, user, password, db)
+        self.connection = self.connect_db(host, user, password, db)
 
-        self.cursor = self.connection.cursor()
 
     def connect_db(self, host, user, password, db):
-        self.connection = pymysql.connect(host=host,
+        return pymysql.connect(host=host,
                                         user=user,
                                         password=password,
                                         db=db,
@@ -43,6 +65,11 @@ class APIDatabase():
                                         cursorclass=pymysql.cursors.DictCursor)
 
     def reconnect_db(self):
+        try:
+            self.connection.close()
+        except:
+            pass
+        
         self.connection = self.connect_db(self.host, self.user, self.password, self.db)
 
 
@@ -54,38 +81,56 @@ class APIDatabase():
                   values (%s, %s, %s)
                   ON DUPLICATE KEY UPDATE express_name=%s """
 
-        while True:
-            try:
-                self.cursor.execute(sql, (index, condition_name, '', condition_name))
-                self.connection.commit()
+        cursor = object()
+
+        while 1:
+            cursor = self.connection.cursor()
+            cursor.execute(sql, (index, condition_name, '', condition_name))
+            self.connection.commit()
+            '''
             except:
                 self.reconnect_db()
                 continue
+                '''
             break
+
+        return cursor.close()
+        
 
     def truncate_investmentitem(self):
         sql="truncate api_investmentitems"
-        self.cursor.execute(sql)
+        cursor = self.connection.cursor()
+        cursor.execute(sql)
 
     def select_investmentitem(self, field_name, where_name, where_value):
         sql = """ select %s
                   from api_investmentitems
                   where %s=%s """ % (field_name, where_name, where_value)
-        
+
+
+        cursor = object()
+
         while True:
             try:
-                self.cursor.execute(sql)
+                
+                cursor = self.connection.cursor()
+                cursor.execute(sql)
+            
             except:
                 logging.error('%s %s', self.select_investmentitem.__name__,
-                                    self.cursor._last_executed)
+                                    cursor._last_executed)
+                
                 self.reconnect_db()
                 continue
-
+            
             break
 
+
         try:
-            return self.cursor.fetchone()[field_name]
+            cursor.close()
+            return cursor.fetchone()[field_name]
         except:
+            cursor.close()
             return False
 
         
@@ -98,32 +143,41 @@ class APIDatabase():
                   item_percentage) 
                   values(%s, %s, %s, 0, 0, 0, 0, 0, 0, 0, 0) """
 
-        while 1:
+        cursor = object()
+
+        while True:
             try:
-                self.cursor.execute(sql, (item_code, item_name, condition_id))
+                cursor = self.connection.cursor()
+                cursor.execute(sql, (item_code, item_name, condition_id))
                 self.connection.commit()
+
             except:
                 logging.error('%s %s', self.save_investmentitem.__name__, 
-                                    self.cursor._last_executed)
+                                    cursor._last_executed)
                 self.reconnect_db()
-                continue
+                continue 
+        
             break
+            
 
 
-    def delete_investmentitem(self, item_code):
+
+    def delete_investmentitem(self, item_code, condition_name):
         sql = """ delete from api_investmentitems
-                  where item_code=%s """
+                  where item_code=%s and
+                  item_condition_id=\"%s\" """
 
-        while 1:
+        while True:
             try:
-                self.cursor.execute(sql, item_code)
+                cursor = self.connection.cursor()
+                cursor.execute(sql, (item_code, condition_name))
                 self.connection.commit()
             except:
                 logging.error('%s %s', self.delete_investmentitem.__name__,
-                                    self.cursor._last_executed)
+                                    cursor._last_executed)
                 self.reconnect_db()
                 continue
-
+                
             break
 
 
@@ -139,21 +193,28 @@ class APIDatabase():
                   item_high_price=%s, item_low_price=%s,
                   item_price=%s, item_yester_price=%s, item_percentage=%s 
                   where item_code=%s """
+
+        cursor = object()
         
-        while 1:    
+        while True:
             try:
-                self.cursor.execute(sql, (item_marketcap, item_transactions, 
+                cursor = self.connection.cursor()
+                cursor.execute(sql, (item_marketcap, item_transactions, 
                                         item_current_price, item_high_price, 
                                         item_low_price, item_price, item_yester_price,
                                         item_percentage, item_code))
                 self.connection.commit()
+            
             except:
                 logging.error('%s %s', self.update_investmentitem.__name__, 
-                                    self.cursor._last_executed)
+                                    cursor._last_executed)
                 self.reconnect_db()
                 continue
-
+            
             break
+            
+        return cursor.close()
+
 
 
 class KiWoomApi(QMainWindow):
@@ -169,8 +230,12 @@ class KiWoomApi(QMainWindow):
         self.setGeometry(300, 300, 220, 220)
 
         self.db = Database
+        self.scrno_dict = dict()
 
-        self.push_request = pushRequest(PUSHSERVER_URL)
+        self.push_request = pushRequest(PUSHSERVER_URL, self.db)
+        self.push_thread = pushThread(self.push_request)
+        self.push_thread.start()
+
 
         self.btn_after_login = QPushButton("automatic", self)
         self.btn_after_login.setVisible(False)
@@ -248,13 +313,20 @@ class KiWoomApi(QMainWindow):
         if self.scrNum < 9999:
             self.scrNum += 1
         else:
-            self.scrNum = 5000
+            self.scrNum = 6000
 
-        return self.scrNum
+        return str(self.scrNum)
+
+    @pyqtSlot(str, str)
+    def SetInputValue(self, ID, Value):
+        return self.kiwoom_ocx.dynamicCall("SetInputValue(QString, QString)", ID, Value)
 
 
     def CommConnect(self):
         return self.kiwoom_ocx.dynamicCall("CommConnect()")
+
+    def CommRqData(self, RQName, sCode, Prev, ScreenNo):
+        return self.kiwoom_ocx.dynamicCall("CommRqData(QString, QString, int, QString)", RQName, sCode, Prev, ScreenNo)
 
     
     def GetConnectState(self):
@@ -305,6 +377,9 @@ class KiWoomApi(QMainWindow):
     def GetMasterLastPrice(self, strCode):
         return self.kiwoom_ocx.dynamicCall("GetMasterLastPrice(QString)", strCode)
 
+    def DisconnectRealData(self, scrNum):
+        return self.kiwoom_ocx.dynamicCall("DisconnectRealData(QString)", scrNum)
+
 
     def OnEventConnect(self, err_code):
         if err_code == 0:
@@ -316,12 +391,17 @@ class KiWoomApi(QMainWindow):
             self.do_automatic()
 
     def OnReceiveMsg(self, ScrNo, RQName, TrCode, Msg):
+        print(ScrNo, RQName, TrCode, Msg)
         logging.info('%s %s %s', self.OnReceiveMsg.__name__, RQName, Msg)
 
     @pyqtSlot(str, str, str, str, str, int, str, str, str)
     def OnReceiveTrData(self, ScrNo, RQName, TrCode, RecordName, PrevNext, DataLength, ErrorCode, Message, SplmMsg):
-        if RQName == "주식기본정보":
+        if RQName == "주식기본정보" or RQName == "주식기본정보_편입":
+            print(TrCode, RQName)
             cnt = self.GetRepeatCnt(TrCode, RecordName)
+
+            if RQName =="주식기본정보_편입":
+                cnt = 1
 
             for i in range(cnt):
                 item_code = self.GetCommData(TrCode, RQName, i, "종목코드").strip()
@@ -351,15 +431,18 @@ class KiWoomApi(QMainWindow):
 
                 self.db.update_investmentitem(**d)
 
-            self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
+                if RQName == "주식기본정보_편입":
+                    d_dict = self.scrno_dict[ScrNo]
+                    d_dict['arg']['item_price'] = d['item_price']
+                    self.push_request.enqueue_request(d_dict['arg'])
 
+            self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
         
 
         return
 
 
     def OnReceiveRealData(self, Code, RealType, RealData):
-        logging.info('%s %s %s', self.OnReceiveRealData.__name__, Code, RealType)
         if RealType == "주식시세":
             item_name = self.GetMasterCodeName(Code)
             item_code = Code
@@ -429,7 +512,6 @@ class KiWoomApi(QMainWindow):
 
         codelist = CodeList[: -1]
         randomString = str(uuid.uuid4())
-        time.sleep(1)
         while self.CommKwRqData(codelist, 0, codelen, 0, "주식기본정보", self.getScrNum()) == -200:
             pass
 
@@ -441,40 +523,53 @@ class KiWoomApi(QMainWindow):
 
         arg['condition_name'] = strConditionName
         arg['condition_index'] = strConditionIndex
+        arg['sCode'] = sCode
+
+        item_name = self.GetMasterCodeName(sCode)
+        arg['item_name'] = item_name
 
         if sType == "I":
-            item_name = self.GetMasterCodeName(sCode)
+            scrno = self.getScrNum()
+            arg['status'] = '1'
+
             self.add_status_message('{} 종목 편입'.format(item_name))
 
             self.db.save_investmentitem(sCode, item_name, strConditionName) 
-            while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
-                pass
 
-            while 1:
-                arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
-                if arg['item_price']:
-                    break
+            self.scrno_dict[scrno] = {
+                'arg': arg,
+                'sCode': sCode,
+                'condition_name': strConditionName,
+            }
 
-                time.sleep(1)
+            #while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보_편입", scrno) == -200:
+            #    pass
 
-            arg['status'] = '1'
+            self.SetInputValue("종목코드", sCode)
+            print(self.CommRqData("주식기본정보_편입", "opt10001", 0, scrno))
 
-            logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
+
+            #logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
 
         elif sType == "D":
-            item_name = self.GetMasterCodeName(sCode)
             arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
+
+            for k, d in self.scrno_dict.items():
+                if d['sCode'] == sCode and d['condition_name'] == strConditionName:
+                    self.DisconnectRealData(str(k))
+                    del self.scrno_dict[k]
+
+                    break
 
             logging.info('조건식 %s, %s 이탈 %s', strConditionName, item_name, arg['item_price'])
 
             self.add_status_message('{} 종목 이탈'.format(item_name))
 
-            self.db.delete_investmentitem(sCode)
+            self.db.delete_investmentitem(sCode, strConditionName)
 
             arg['status'] = '0'
 
-        arg['item_name'] = item_name
-        self.push_request.send(arg)
+            self.push_request.enqueue_request(arg)
 
 
 if __name__ == "__main__":
@@ -485,7 +580,7 @@ if __name__ == "__main__":
                         datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='',
+                    user='root',
                     password='',
                     db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
