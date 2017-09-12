@@ -27,10 +27,6 @@ class pushRequest():
     def send(self):
         if self.requestQueue.qsize():
             arg = self.requestQueue.get()
-
-            while not arg['item_price']:
-                arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', arg['sCode'])
-
             res = requests.get(self.request_uri, params=arg)
         
 class pushThread(QThread):
@@ -198,7 +194,7 @@ class APIDatabase():
         
         while True:
             try:
-                
+                print('update loop')
                 cursor = self.connection.cursor()
                 cursor.execute(sql, (item_marketcap, item_transactions, 
                                         item_current_price, item_high_price, 
@@ -231,6 +227,7 @@ class KiWoomApi(QMainWindow):
         self.setGeometry(300, 300, 220, 220)
 
         self.db = Database
+        self.scrno_dict = dict()
 
         self.push_request = pushRequest(PUSHSERVER_URL, self.db)
         self.push_thread = pushThread(self.push_request)
@@ -313,7 +310,7 @@ class KiWoomApi(QMainWindow):
         if self.scrNum < 9999:
             self.scrNum += 1
         else:
-            self.scrNum = 5000
+            self.scrNum = 6000
 
         return self.scrNum
 
@@ -370,6 +367,9 @@ class KiWoomApi(QMainWindow):
     def GetMasterLastPrice(self, strCode):
         return self.kiwoom_ocx.dynamicCall("GetMasterLastPrice(QString)", strCode)
 
+    def DisconnectRealData(self, scrNum):
+        return self.kiwoom_ocx.dynamicCall("DisconnectRealData(QString)", scrNum)
+
 
     def OnEventConnect(self, err_code):
         if err_code == 0:
@@ -385,7 +385,7 @@ class KiWoomApi(QMainWindow):
 
     @pyqtSlot(str, str, str, str, str, int, str, str, str)
     def OnReceiveTrData(self, ScrNo, RQName, TrCode, RecordName, PrevNext, DataLength, ErrorCode, Message, SplmMsg):
-        if RQName == "주식기본정보":
+        if RQName == "주식기본정보" or RQName == "주식기본정보_편입":
             cnt = self.GetRepeatCnt(TrCode, RecordName)
 
             for i in range(cnt):
@@ -416,8 +416,12 @@ class KiWoomApi(QMainWindow):
 
                 self.db.update_investmentitem(**d)
 
-            self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
+                if RQName == "주식기본정보_편입":
+                    d = self.scrno_dict[ScrNo]
+                    d['arg']['item_price'] = item_price
+                    self.push_request.enqueue_request(d['arg'])
 
+            self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
         
 
         return
@@ -508,23 +512,36 @@ class KiWoomApi(QMainWindow):
         arg['condition_index'] = strConditionIndex
 
         if sType == "I":
+            scrno = self.getScrNum()
+            arg['status'] = '1'
+
             item_name = self.GetMasterCodeName(sCode)
             self.add_status_message('{} 종목 편입'.format(item_name))
 
             self.db.save_investmentitem(sCode, item_name, strConditionName) 
-            while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보", self.getScrNum()) == -200:
+
+            self.scrno_dict[scrno] = {
+                'arg': arg,
+                'sCode': sCode,
+                'condition_name': strConditionName,
+            }
+
+            while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보_편입", scrno) == -200:
                 pass
 
-            arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
 
-
-            arg['status'] = '1'
-
-            logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
+            #logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
 
         elif sType == "D":
             item_name = self.GetMasterCodeName(sCode)
             arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
+
+            for k, d in self.scrno_dict.items():
+                if d['sCode'] == sCode and d['condition_name'] == strConditionName:
+                    self.DisconnectRealData(str(k))
+                    del self.scrno_dict[k]
+
+                    break
 
             logging.info('조건식 %s, %s 이탈 %s', strConditionName, item_name, arg['item_price'])
 
@@ -547,9 +564,9 @@ if __name__ == "__main__":
                         datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='',
-                    password='',
-                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    user='root',
+                    password='m0425s000',
+                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     app = QApplication(sys.argv)
     api = KiWoomApi(db)
