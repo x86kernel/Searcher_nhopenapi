@@ -13,7 +13,7 @@ from PyQt5.QAxContainer import *
 
 import pymysql
 
-PUSHSERVER_URL = "http://localhost:8000/condition_push/"
+PUSHSERVER_URL = "http://localhost:3000/push/"
 
 class pushRequest():
     def __init__(self, requestURI, db):
@@ -27,7 +27,10 @@ class pushRequest():
     def send(self):
         if self.requestQueue.qsize():
             arg = self.requestQueue.get()
-            res = requests.get(self.request_uri, params=arg)
+            try:
+                res = requests.get(self.request_uri, params=arg)
+            except:
+                pass
         
 class pushThread(QThread):
     def __init__(self, pushRequest):
@@ -312,7 +315,7 @@ class KiWoomApi(QMainWindow):
         else:
             self.scrNum = 6000
 
-        return self.scrNum
+        return str(self.scrNum)
 
 
     def CommConnect(self):
@@ -510,12 +513,15 @@ class KiWoomApi(QMainWindow):
 
         arg['condition_name'] = strConditionName
         arg['condition_index'] = strConditionIndex
+        arg['sCode'] = sCode
+
+        item_name = self.GetMasterCodeName(sCode)
+        arg['item_name'] = item_name
 
         if sType == "I":
             scrno = self.getScrNum()
             arg['status'] = '1'
 
-            item_name = self.GetMasterCodeName(sCode)
             self.add_status_message('{} 종목 편입'.format(item_name))
 
             self.db.save_investmentitem(sCode, item_name, strConditionName) 
@@ -533,7 +539,6 @@ class KiWoomApi(QMainWindow):
             #logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
 
         elif sType == "D":
-            item_name = self.GetMasterCodeName(sCode)
             arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
 
             for k, d in self.scrno_dict.items():
@@ -551,9 +556,7 @@ class KiWoomApi(QMainWindow):
 
             arg['status'] = '0'
 
-        arg['sCode'] = sCode
-        arg['item_name'] = item_name
-        self.push_request.enqueue_request(arg)
+            self.push_request.enqueue_request(arg)
 
 
 if __name__ == "__main__":
@@ -564,9 +567,9 @@ if __name__ == "__main__":
                         datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='root',
-                    password='m0425s000',
-                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    user='',
+                    password='',
+                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     app = QApplication(sys.argv)
     api = KiWoomApi(db)
