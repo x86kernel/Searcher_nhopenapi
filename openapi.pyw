@@ -197,7 +197,6 @@ class APIDatabase():
         
         while True:
             try:
-                print('update loop')
                 cursor = self.connection.cursor()
                 cursor.execute(sql, (item_marketcap, item_transactions, 
                                         item_current_price, item_high_price, 
@@ -317,9 +316,16 @@ class KiWoomApi(QMainWindow):
 
         return str(self.scrNum)
 
+    @pyqtSlot(str, str)
+    def SetInputValue(self, ID, Value):
+        return self.kiwoom_ocx.dynamicCall("SetInputValue(QString, QString)", ID, Value)
+
 
     def CommConnect(self):
         return self.kiwoom_ocx.dynamicCall("CommConnect()")
+
+    def CommRqData(self, RQName, sCode, Prev, ScreenNo):
+        return self.kiwoom_ocx.dynamicCall()
 
     
     def GetConnectState(self):
@@ -532,8 +538,11 @@ class KiWoomApi(QMainWindow):
                 'condition_name': strConditionName,
             }
 
-            while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보_편입", scrno) == -200:
-                pass
+            #while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보_편입", scrno) == -200:
+            #    pass
+
+            self.SetInputValue("종목코드", sCode)
+            self.CommRqData("주식기본정보_편입", "OPT10001", 0, scrno)
 
 
             #logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
@@ -567,9 +576,9 @@ if __name__ == "__main__":
                         datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='',
-                    password='',
-                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    user='root',
+                    password='m0425s000',
+                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     app = QApplication(sys.argv)
     api = KiWoomApi(db)
