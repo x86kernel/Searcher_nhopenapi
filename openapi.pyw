@@ -162,14 +162,15 @@ class APIDatabase():
 
 
 
-    def delete_investmentitem(self, item_code):
+    def delete_investmentitem(self, item_code, condition_name):
         sql = """ delete from api_investmentitems
-                  where item_code=%s """
+                  where item_code=%s and
+                  item_condition_id=\"%s\" """
 
         while True:
             try:
                 cursor = self.connection.cursor()
-                cursor.execute(sql, item_code)
+                cursor.execute(sql, (item_code, condition_name))
                 self.connection.commit()
             except:
                 logging.error('%s %s', self.delete_investmentitem.__name__,
@@ -325,7 +326,7 @@ class KiWoomApi(QMainWindow):
         return self.kiwoom_ocx.dynamicCall("CommConnect()")
 
     def CommRqData(self, RQName, sCode, Prev, ScreenNo):
-        return self.kiwoom_ocx.dynamicCall()
+        return self.kiwoom_ocx.dynamicCall("CommRqData(QString, QString, int, QString)", RQName, sCode, Prev, ScreenNo)
 
     
     def GetConnectState(self):
@@ -390,12 +391,17 @@ class KiWoomApi(QMainWindow):
             self.do_automatic()
 
     def OnReceiveMsg(self, ScrNo, RQName, TrCode, Msg):
+        print(ScrNo, RQName, TrCode, Msg)
         logging.info('%s %s %s', self.OnReceiveMsg.__name__, RQName, Msg)
 
     @pyqtSlot(str, str, str, str, str, int, str, str, str)
     def OnReceiveTrData(self, ScrNo, RQName, TrCode, RecordName, PrevNext, DataLength, ErrorCode, Message, SplmMsg):
         if RQName == "주식기본정보" or RQName == "주식기본정보_편입":
+            print(TrCode, RQName)
             cnt = self.GetRepeatCnt(TrCode, RecordName)
+
+            if RQName =="주식기본정보_편입":
+                cnt = 1
 
             for i in range(cnt):
                 item_code = self.GetCommData(TrCode, RQName, i, "종목코드").strip()
@@ -426,9 +432,9 @@ class KiWoomApi(QMainWindow):
                 self.db.update_investmentitem(**d)
 
                 if RQName == "주식기본정보_편입":
-                    d = self.scrno_dict[ScrNo]
-                    d['arg']['item_price'] = item_price
-                    self.push_request.enqueue_request(d['arg'])
+                    d_dict = self.scrno_dict[ScrNo]
+                    d_dict['arg']['item_price'] = d['item_price']
+                    self.push_request.enqueue_request(d_dict['arg'])
 
             self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
         
@@ -437,7 +443,6 @@ class KiWoomApi(QMainWindow):
 
 
     def OnReceiveRealData(self, Code, RealType, RealData):
-        logging.info('%s %s %s', self.OnReceiveRealData.__name__, Code, RealType)
         if RealType == "주식시세":
             item_name = self.GetMasterCodeName(Code)
             item_code = Code
@@ -507,7 +512,6 @@ class KiWoomApi(QMainWindow):
 
         codelist = CodeList[: -1]
         randomString = str(uuid.uuid4())
-        time.sleep(1)
         while self.CommKwRqData(codelist, 0, codelen, 0, "주식기본정보", self.getScrNum()) == -200:
             pass
 
@@ -542,7 +546,7 @@ class KiWoomApi(QMainWindow):
             #    pass
 
             self.SetInputValue("종목코드", sCode)
-            self.CommRqData("주식기본정보_편입", "OPT10001", 0, scrno)
+            print(self.CommRqData("주식기본정보_편입", "opt10001", 0, scrno))
 
 
             #logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
@@ -561,7 +565,7 @@ class KiWoomApi(QMainWindow):
 
             self.add_status_message('{} 종목 이탈'.format(item_name))
 
-            self.db.delete_investmentitem(sCode)
+            self.db.delete_investmentitem(sCode, strConditionName)
 
             arg['status'] = '0'
 
@@ -577,8 +581,8 @@ if __name__ == "__main__":
 
     db = APIDatabase(host='localhost', 
                     user='root',
-                    password='m0425s000',
-                    db ='searcher_api')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+                    password='',
+                    db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
     app = QApplication(sys.argv)
     api = KiWoomApi(db)
