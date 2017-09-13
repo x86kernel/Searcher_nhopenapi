@@ -27,6 +27,7 @@ class pushRequest():
     def send(self):
         if self.requestQueue.qsize():
             arg = self.requestQueue.get()
+                
             try:
                 res = requests.get(self.request_uri, params=arg)
             except:
@@ -165,7 +166,7 @@ class APIDatabase():
     def delete_investmentitem(self, item_code, condition_name):
         sql = """ delete from api_investmentitems
                   where item_code=%s and
-                  item_condition_id=\"%s\" """
+                  item_condition_id=%s """
 
         while True:
             try:
@@ -186,13 +187,14 @@ class APIDatabase():
                               item_transactions, item_current_price, 
                               item_high_price, item_low_price, 
                               item_price, item_percentage,
-                              item_yester_price):
+                              item_yester_price, item_condition_id):
 
         sql = """ update api_investmentitems
                   set item_marketcap=%s, item_transactions=%s, item_current_price=%s,
                   item_high_price=%s, item_low_price=%s,
                   item_price=%s, item_yester_price=%s, item_percentage=%s 
-                  where item_code=%s """
+                  where item_code=%s and
+                  item_condition_id=%s"""
 
         cursor = object()
         
@@ -202,7 +204,7 @@ class APIDatabase():
                 cursor.execute(sql, (item_marketcap, item_transactions, 
                                         item_current_price, item_high_price, 
                                         item_low_price, item_price, item_yester_price,
-                                        item_percentage, item_code))
+                                        item_percentage, item_code, item_condition_id))
                 self.connection.commit()
             
             except:
@@ -260,7 +262,6 @@ class KiWoomApi(QMainWindow):
 
         self.kiwoom_ocx.OnReceiveTrData.connect(self.OnReceiveTrData)
         self.kiwoom_ocx.OnReceiveRealData.connect(self.OnReceiveRealData)
-        self.kiwoom_ocx.OnReceiveMsg.connect(self.OnReceiveMsg)
 
         self.kiwoom_ocx.OnReceiveConditionVer.connect(self.OnReceiveConditionVer)
         self.kiwoom_ocx.OnReceiveTrCondition.connect(self.OnReceiveTrCondition)
@@ -391,22 +392,26 @@ class KiWoomApi(QMainWindow):
             self.do_automatic()
 
     def OnReceiveMsg(self, ScrNo, RQName, TrCode, Msg):
-        print(ScrNo, RQName, TrCode, Msg)
         logging.info('%s %s %s', self.OnReceiveMsg.__name__, RQName, Msg)
 
     @pyqtSlot(str, str, str, str, str, int, str, str, str)
     def OnReceiveTrData(self, ScrNo, RQName, TrCode, RecordName, PrevNext, DataLength, ErrorCode, Message, SplmMsg):
         if RQName == "주식기본정보" or RQName == "주식기본정보_편입":
-            print(TrCode, RQName)
+            try:
+                if self.scrno_dict[ScrNo]['sended']:
+                    return
+            except:
+                pass
+            
             cnt = self.GetRepeatCnt(TrCode, RecordName)
 
-            if RQName =="주식기본정보_편입":
+            if RQName == "주식기본정보_편입":
                 cnt = 1
 
             for i in range(cnt):
                 item_code = self.GetCommData(TrCode, RQName, i, "종목코드").strip()
 
-                item_marketcap = self.GetCommData(TrCode, RQName, i, "시가총액")
+                item_marketcap = self.GetCommData(TrCode, RQName, i, "시가총액").strip()
 
                 item_transactions = self.GetCommData(TrCode, RQName, i, "거래량").strip()
 
@@ -418,6 +423,9 @@ class KiWoomApi(QMainWindow):
 
                 item_percentage = self.GetCommData(TrCode, RQName, i, "등락율").strip()
 
+
+                d_dict = self.scrno_dict[ScrNo]
+
                 d = dict(item_code=item_code, 
                         item_marketcap=item_marketcap,
                         item_transactions=item_transactions,
@@ -426,15 +434,22 @@ class KiWoomApi(QMainWindow):
                         item_low_price=item_low_price,
                         item_price=item_price,
                         item_yester_price=item_yester_price,
-                        item_percentage=item_percentage)
+                        item_percentage=item_percentage,
+                        item_condition_id=d_dict['condition_name'])
+                
+                if RQName == "주식기본정보":
+                    self.db.update_investmentitem(**d)
 
-
-                self.db.update_investmentitem(**d)
-
-                if RQName == "주식기본정보_편입":
+                
+                if RQName == "주식기본정보_편입" and not self.scrno_dict[ScrNo]['sended']:
                     d_dict = self.scrno_dict[ScrNo]
-                    d_dict['arg']['item_price'] = d['item_price']
+                    d_dict['arg']['item_price'] = item_price
+
+                    self.db.save_investmentitem(d_dict['sCode'], d_dict['item_name'], d_dict['condition_name'])
+                    self.db.update_investmentitem(**d)
+                    
                     self.push_request.enqueue_request(d_dict['arg'])
+                    self.scrno_dict[ScrNo]['sended'] = True
 
             self.add_status_message('{} 개의 종목이 추가 됨'.format(cnt))
         
@@ -511,8 +526,14 @@ class KiWoomApi(QMainWindow):
             return    
 
         codelist = CodeList[: -1]
-        randomString = str(uuid.uuid4())
-        while self.CommKwRqData(codelist, 0, codelen, 0, "주식기본정보", self.getScrNum()) == -200:
+
+        scrno = self.getScrNum()
+
+        self.scrno_dict[scrno] = {
+            'condition_name': ConditionName
+        }
+        
+        while self.CommKwRqData(codelist, 0, codelen, 0, "주식기본정보", scrno) == -200:
             pass
 
 
@@ -532,44 +553,31 @@ class KiWoomApi(QMainWindow):
             scrno = self.getScrNum()
             arg['status'] = '1'
 
-            self.add_status_message('{} 종목 편입'.format(item_name))
 
-            self.db.save_investmentitem(sCode, item_name, strConditionName) 
-
-            self.scrno_dict[scrno] = {
+            self.scrno_dict['9000'] = {
                 'arg': arg,
                 'sCode': sCode,
+                'item_name': item_name,
                 'condition_name': strConditionName,
+                'sended': False
             }
 
-            #while self.CommKwRqData(sCode, 0, 1, 0, "주식기본정보_편입", scrno) == -200:
-            #    pass
-
             self.SetInputValue("종목코드", sCode)
-            print(self.CommRqData("주식기본정보_편입", "opt10001", 0, scrno))
+            self.CommRqData("주식기본정보_편입", "OPT10001", 0, '9000')
 
-
-            #logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name, arg['item_price'])
+            self.add_status_message('{} 종목 편입'.format(item_name))
+            logging.info('조건식 %s, %s 편입 %s', strConditionName, item_name)
 
         elif sType == "D":
             arg['item_price'] = self.db.select_investmentitem('item_price', 'item_code', sCode)
 
-            for k, d in self.scrno_dict.items():
-                if d['sCode'] == sCode and d['condition_name'] == strConditionName:
-                    self.DisconnectRealData(str(k))
-                    del self.scrno_dict[k]
-
-                    break
-
-            logging.info('조건식 %s, %s 이탈 %s', strConditionName, item_name, arg['item_price'])
-
-            self.add_status_message('{} 종목 이탈'.format(item_name))
-
             self.db.delete_investmentitem(sCode, strConditionName)
 
             arg['status'] = '0'
-
             self.push_request.enqueue_request(arg)
+
+            self.add_status_message('{} 종목 이탈'.format(item_name))
+            logging.info('조건식 %s, %s 이탈 %s', strConditionName, item_name)
 
 
 if __name__ == "__main__":
@@ -580,7 +588,7 @@ if __name__ == "__main__":
                         datefmt='%Y/%m/%d %I:%M:%S %p')
 
     db = APIDatabase(host='localhost', 
-                    user='root',
+                    user='',
                     password='',
                     db ='')  # CREATE DATABASE (DATABASE_NAME) DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
